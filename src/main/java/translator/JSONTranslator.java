@@ -1,16 +1,16 @@
 package translator;
 
 import com.google.gson.Gson;
-import com.rabbitmq.client.AMQP.BasicProperties;
+import com.rabbitmq.client.AMQP.*;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Consumer;
 import com.rabbitmq.client.DefaultConsumer;
 import com.rabbitmq.client.Envelope;
 import connector.RabbitMQConnector;
 import models.Data;
-import utilities.MessageUtility;
 import java.io.IOException;
 import java.io.StringReader;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.xml.bind.JAXBContext;
@@ -25,8 +25,7 @@ public class JSONTranslator {
     private String queueName;
     private final String EXCHANGENAME = "whatTranslator.json";
     private final String BANKEXCHANGENAME = "cphbusiness.bankJSON";
-    private final String REPLYTOQUENAME = "helloABCDE";//bank will send the reply to this que. Change it later. This is test que.
-    private final MessageUtility util = new MessageUtility();
+    private final String REPLYTOQUENAME = "whatNormalizerQueue";//bank will send the reply to this que. Change it later. This is test que.
 
     public void init() throws IOException {
         channel = connector.getChannel();
@@ -37,7 +36,7 @@ public class JSONTranslator {
     }
 
     private boolean receive() throws IOException {
-
+//        channel.basicQos(1);
         System.out.println(" [*] Waiting for messages.");
         final Consumer consumer = new DefaultConsumer(channel) {
 
@@ -47,15 +46,18 @@ public class JSONTranslator {
                 System.out.println(" [x] Received ");
                 try {
                     String corrId = properties.getCorrelationId();
-                    System.out.println("receivedCorrID: "+corrId);
-                    send(corrId, body);
+                    send(properties, body);
                 }
                 catch (JAXBException ex) {
                     Logger.getLogger(JSONTranslator.class.getName()).log(Level.SEVERE, null, ex);
                 }
+                finally {
+                    System.out.println(" [x] Done");
+                    channel.basicAck(envelope.getDeliveryTag(), false);
+                }
             }
         };
-        channel.basicConsume(queueName, true, consumer);
+        channel.basicConsume(queueName, false, consumer);
         return true;
     }
 
@@ -71,28 +73,27 @@ public class JSONTranslator {
         return res.substring(res.indexOf("<?xml"));
     }
 
-    private BasicProperties propBuilder(String corrId) {
+    private BasicProperties propBuilder(String corrId,Map<String,Object> headers) {
         BasicProperties.Builder builder = new BasicProperties.Builder();
         builder.replyTo(REPLYTOQUENAME);
+        System.out.println(headers.get("bankName"));
+        builder.headers(headers);
         builder.correlationId(corrId);
         BasicProperties prop = builder.build();
         return prop;
     }
 
-    public boolean send(String corrId, byte[] body) throws JAXBException {
+    public boolean send(BasicProperties prop, byte[] body) throws JAXBException {
 
-        try {
-            BasicProperties prop = propBuilder(corrId);
-
+        try {String corrId= prop.getCorrelationId();
+            BasicProperties newProp = propBuilder(corrId, prop.getHeaders());
             String bodyString = removeBom(new String(body));
             Data data = unmarchal(bodyString);
             int months = data.getLoanDuration() * 12;
             data.setLoanDuration(months);
-
             Gson gson = new Gson();
             String jsonString = gson.toJson(data);
-            System.out.println("JSON:" + jsonString + " will be sent to " + BANKEXCHANGENAME + " and the reply will be sent to " + REPLYTOQUENAME);
-            channel.basicPublish(BANKEXCHANGENAME, "", prop, jsonString.getBytes());
+            channel.basicPublish(BANKEXCHANGENAME, "", newProp, jsonString.getBytes());
             return true;
         }
         catch (IOException ex) {
