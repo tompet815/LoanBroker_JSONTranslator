@@ -25,7 +25,7 @@ public class JSONTranslator {
     private String queueName;
     private final String EXCHANGENAME = "whatTranslator.json";
     private final String BANKEXCHANGENAME = "cphbusiness.bankJSON";
-    private final String REPLYTOQUENAME = "whatNormalizerQueue";//bank will send the reply to this que. Change it later. This is test que.
+    private final String REPLYTOQUENAME = "whatNormalizerQueue";
 
     public void init() throws IOException {
         channel = connector.getChannel();
@@ -36,7 +36,7 @@ public class JSONTranslator {
     }
 
     private boolean receive() throws IOException {
-//        channel.basicQos(1);
+
         System.out.println(" [*] Waiting for messages.");
         final Consumer consumer = new DefaultConsumer(channel) {
 
@@ -45,7 +45,6 @@ public class JSONTranslator {
 
                 System.out.println(" [x] Received ");
                 try {
-                    String corrId = properties.getCorrelationId();
                     send(properties, body);
                 }
                 catch (JAXBException ex) {
@@ -93,6 +92,7 @@ public class JSONTranslator {
             data.setLoanDuration(months);
             Gson gson = new Gson();
             String jsonString = gson.toJson(data);
+            System.out.println("sending to "+BANKEXCHANGENAME+" "+jsonString);
             channel.basicPublish(BANKEXCHANGENAME, "", newProp, jsonString.getBytes());
             return true;
         }
@@ -101,5 +101,4 @@ public class JSONTranslator {
             return false;
         }
     }
-
 }
