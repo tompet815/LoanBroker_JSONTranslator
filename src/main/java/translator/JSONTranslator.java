@@ -23,7 +23,8 @@ public class JSONTranslator {
 
     private Channel channel;
     private String queueName;
-    private final String EXCHANGENAME = "whatTranslator.json";
+    private final String EXCHANGENAME = "whatTranslator";
+     private final String ROUTING_KEY="json";
     private final String BANKEXCHANGENAME = "cphbusiness.bankJSON";
     private final String REPLYTOQUENAME = "whatNormalizerQueue";
 
@@ -31,7 +32,7 @@ public class JSONTranslator {
         channel = connector.getChannel();
         channel.exchangeDeclare(EXCHANGENAME, "direct");
         queueName = channel.queueDeclare().getQueue();
-        channel.queueBind(queueName, EXCHANGENAME, "");
+        channel.queueBind(queueName, EXCHANGENAME, ROUTING_KEY);
         receive();
     }
 
@@ -72,7 +73,7 @@ public class JSONTranslator {
         return res.substring(res.indexOf("<?xml"));
     }
 
-    private BasicProperties propBuilder(String corrId,Map<String,Object> headers) {
+    private BasicProperties propBuilder(String corrId, Map<String, Object> headers) {
         BasicProperties.Builder builder = new BasicProperties.Builder();
         builder.replyTo(REPLYTOQUENAME);
         System.out.println(headers.get("bankName"));
@@ -84,15 +85,20 @@ public class JSONTranslator {
 
     public boolean send(BasicProperties prop, byte[] body) throws JAXBException {
 
-        try {String corrId= prop.getCorrelationId();
+        try {
+            String corrId = prop.getCorrelationId();
             BasicProperties newProp = propBuilder(corrId, prop.getHeaders());
             String bodyString = removeBom(new String(body));
             Data data = unmarchal(bodyString);
+            String ssn=data.getSsn();
+            String ssnWithoutBind=ssn.replace("-","");
+            data.setSsn(ssnWithoutBind);
+            System.out.println("sending SSN :"+ssnWithoutBind);
             int months = data.getLoanDuration() * 12;
             data.setLoanDuration(months);
             Gson gson = new Gson();
             String jsonString = gson.toJson(data);
-            System.out.println("sending to "+BANKEXCHANGENAME+" "+jsonString);
+            System.out.println("sending to " + BANKEXCHANGENAME + " " + jsonString);
             channel.basicPublish(BANKEXCHANGENAME, "", newProp, jsonString.getBytes());
             return true;
         }
